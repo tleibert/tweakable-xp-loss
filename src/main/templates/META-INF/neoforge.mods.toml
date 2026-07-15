@@ -1,0 +1,36 @@
+# neoforge.mods.toml for Tweakable XP Loss
+# Standard TOML format, v0.5.0.
+
+modLoader="javafml" #mandatory
+loaderVersion="${loader_version_range}" #mandatory
+license="${mod_license}" #mandatory
+
+#issueTrackerURL="https://change.me/" #optional
+
+[[mods]] #mandatory
+modId="${mod_id}" #mandatory
+version="${mod_version}" #mandatory
+displayName="${mod_name}" #mandatory
+#displayURL="https://change.me/" #optional
+#logoFile="logo.png" #optional
+#credits="" #optional
+#authors="" #optional
+description='''
+A small server-side mod that lets you configure the percentage of experience points a player keeps after death, overriding the default vanilla XP loss.
+'''
+
+# A dependency on NeoForge.
+[[dependencies.${mod_id}]] #optional
+    modId="neoforge" #mandatory
+    type="required" #mandatory
+    versionRange="${neo_version_range}" #mandatory
+    ordering="NONE"
+    side="BOTH"
+
+# A dependency on Minecraft.
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
