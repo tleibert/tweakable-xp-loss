@@ -10,9 +10,10 @@ permissions:
   contents: read
 
 # Compiles the mod against every targeted Minecraft/NeoForge version.
-# The two "publish target" rows build the actual shipped jars (legacy 1.21.1, modern 1.21.11);
-# the "tripwire" rows recompile the legacy source against each other 1.21.x minor to catch any
-# future API drift in the shared code. All rows must pass.
+# The three "publish target" rows build the actual shipped jars (legacy 1.21.1,
+# modern 1.21.11, next 26.2); the "tripwire" rows recompile the legacy source against
+# each other 1.21.x minor to catch future API drift in the shared code. All rows must pass.
+# Each era needs a different JDK: 21 for the 1.21.x line, 25 for MC 26.x.
 jobs:
   build:
     name: ${{ matrix.label }}
@@ -21,21 +22,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { era: legacy, neo: "",         label: "legacy 1.21.1 (publish target)" }
-          - { era: legacy, neo: "21.3.97",  label: "legacy 1.21.3 tripwire" }
-          - { era: legacy, neo: "21.4.157", label: "legacy 1.21.4 tripwire" }
-          - { era: legacy, neo: "21.5.98",  label: "legacy 1.21.5 tripwire" }
-          - { era: legacy, neo: "21.8.54",  label: "legacy 1.21.8 tripwire" }
-          - { era: legacy, neo: "21.10.64", label: "legacy 1.21.10 tripwire" }
-          - { era: modern, neo: "",         label: "modern 1.21.11 (publish target)" }
+          - { era: legacy, neo: "",         java: 21, label: "legacy 1.21.1 (publish target)" }
+          - { era: legacy, neo: "21.3.97",  java: 21, label: "legacy 1.21.3 tripwire" }
+          - { era: legacy, neo: "21.4.157", java: 21, label: "legacy 1.21.4 tripwire" }
+          - { era: legacy, neo: "21.5.98",  java: 21, label: "legacy 1.21.5 tripwire" }
+          - { era: legacy, neo: "21.8.54",  java: 21, label: "legacy 1.21.8 tripwire" }
+          - { era: legacy, neo: "21.10.64", java: 21, label: "legacy 1.21.10 tripwire" }
+          - { era: modern, neo: "",         java: 21, label: "modern 1.21.11 (publish target)" }
+          - { era: next,   neo: "",         java: 25, label: "next 26.2 (publish target)" }
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up Java 21
+      - name: Set up Java ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '${{ matrix.java }}'
 
       - name: Cache Gradle + neoformruntime
         uses: actions/cache@v5

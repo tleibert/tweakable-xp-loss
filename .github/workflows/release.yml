@@ -8,14 +8,14 @@ on:
 permissions:
   contents: write   # required to create the GitHub Release
 
-# Builds both era jars and publishes each as a separate Modrinth version, then attaches both
-# jars to a GitHub Release. Triggered by pushing a tag like `v1.1.0`.
+# Builds all three era jars and publishes each as a separate Modrinth version, then attaches
+# all jars to a GitHub Release. Triggered by pushing a tag like `v1.1.0`.
 #
 # Prerequisites (one-time setup — see the repo README / docs/PORTING.md):
 #   1. The Modrinth project with slug "tweakable-xp-loss" must already exist (create it as a
 #      draft via the Modrinth dashboard first; Minotaur cannot create the project).
 #   2. A GitHub Actions secret named MODRINTH_TOKEN containing a Modrinth API token with the
-#      CREATE_VERSION scope (https://modrinth.com/settings/account).
+#      VERSION_CREATE scope (https://modrinth.com/settings/account).
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -24,11 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The legacy/modern eras compile on Java 21; the next era (MC 26.x) requires Java 25.
+      # Install both so Gradle's toolchain resolution finds each without auto-provisioning.
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
 
       - name: Cache Gradle + neoformruntime
         uses: actions/cache@v5
@@ -45,6 +52,9 @@ jobs:
 
       - name: Publish modern jar to Modrinth (MC 1.21.11)
         run: ./gradlew modrinth -Pera=modern --no-daemon --stacktrace
+
+      - name: Publish next jar to Modrinth (MC 26.2, beta)
+        run: ./gradlew modrinth -Pera=next --no-daemon --stacktrace
 
       - name: Collect jars
         run: |

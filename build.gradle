@@ -31,6 +31,7 @@ Map<String, Map<String, Object>> eraConfig = [
         neoRange        : '[21.1,21.11)',
         classifier      : 'mc1.21.1',
         gameVersions    : ['1.21.1', '1.21.3', '1.21.4', '1.21.5', '1.21.8', '1.21.10'],
+        versionType     : 'release',
         parchmentMc     : '1.21.1',
         parchmentVer    : '2024.11.17',
     ],
@@ -41,7 +42,22 @@ Map<String, Map<String, Object>> eraConfig = [
         neoRange        : '[21.11,)',
         classifier      : 'mc1.21.11',
         gameVersions    : ['1.21.11'],
+        versionType     : 'release',
         // Parchment has no 1.21.11 build yet; compile without it (param names only).
+        parchmentMc     : '',
+        parchmentVer    : '',
+    ],
+    // MC 26.x: GameRules API is identical to 1.21.11 (verified against decompiled 26.2 source),
+    // so this era reuses src/modern/java's KeepInventoryCompat. NeoForge 26.2.x is beta-only at
+    // present, so this ships as versionType 'beta'. MC 26.x requires Java 25 (FancyModLoader 11).
+    next: [
+        neoVersion      : '26.2.0.23-beta',
+        minecraftVersion: '26.2',
+        mcRange         : '[26.2,27)',
+        neoRange        : '[26.2,)',
+        classifier      : 'mc26.2',
+        gameVersions    : ['26.2'],
+        versionType     : 'beta',
         parchmentMc     : '',
         parchmentVer    : '',
     ],
@@ -51,16 +67,17 @@ String neoVersion = neoVersionOverride ?: cfg.neoVersion as String
 
 // Sanity: fail fast on a typo'd -Pera.
 if (cfg == null) {
-    throw new GradleException("Unknown era '-Pera=${era}'. Use 'legacy' or 'modern'.")
+    throw new GradleException("Unknown era '-Pera=${era}'. Use 'legacy', 'modern', or 'next'.")
 }
 
 base {
     archivesName = mod_id
 }
 
-// Mojang ships Java 21 to end users through MC 1.21.x; the modern era still targets 21.
-// (MC 26.x / NeoForge 26.x will require Java 25 — handle when that line goes stable.)
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+// Java toolchain is era-driven: MC 1.21.x ships on Java 21; MC 26.x requires Java 25.
+// Gradle auto-provisions the needed JDK (Foojay resolver is applied by the moddev plugin).
+int toolchainMajor = (era == 'next') ? 25 : 21
+java.toolchain.languageVersion = JavaLanguageVersion.of(toolchainMajor)
 
 neoForge {
     version = neoVersion
@@ -96,8 +113,9 @@ neoForge {
 }
 
 // Fold the single era-specific source dir into `main`. src/main/java holds the shared
-// code; src/legacy/java or src/modern/java holds KeepInventoryCompat for that era.
-// Only one era dir is compiled per build (same FQN in both, so never both at once).
+// code; src/legacy/java holds the legacy KeepInventoryCompat; src/modern/java holds the
+// modern one (reused unchanged by the `next` era, whose GameRules API is identical to 1.21.11).
+// Only one era dir is compiled per build (same FQN in both modern/next, so never at once).
 sourceSets {
     main {
         java {
@@ -161,6 +179,7 @@ idea {
 // game-version list). Publish a release by running, per era:
 //   ./gradlew modrinth -Pera=legacy
 //   ./gradlew modrinth -Pera=modern
+//   ./gradlew modrinth -Pera=next
 // Requires the MODRINTH_TOKEN env var. The project (slug "tweakable-xp-loss") must
 // already exist on Modrinth — create it as a draft via the web dashboard first.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,7 +188,9 @@ modrinth {
     projectId = 'tweakable-xp-loss'
     versionNumber = "${mod_version}-${cfg.classifier}"
     versionName = "${mod_name} ${mod_version} (${cfg.classifier})"
-    versionType = 'release'
+    // 'release' for stable MC/NeoForge eras; 'beta' for the next era while NeoForge
+    // for that MC line is itself beta-only (and cross-major compat is unverified beyond).
+    versionType = cfg.versionType
     changelog = file('CHANGELOG.md').exists() ? file('CHANGELOG.md').text : ''
     uploadFile = tasks.jar
     gameVersions = cfg.gameVersions

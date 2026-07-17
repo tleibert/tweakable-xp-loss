@@ -1,11 +1,12 @@
 # Multi-version support plan & record (1.21.1 → newest, up to MC 26)
 
-Status: **implemented (Path C — two jars, direct API per era).** Covers Minecraft **1.21.1–1.21.11**
-via two jars; MC 26.x is deferred until it leaves beta.
+Status: **implemented (Path C — per-era jars, direct API).** Covers Minecraft **1.21.1–1.21.11**
+(legacy + modern jars) and **26.2** (next jar, beta). MC 26.1 (stable NeoForge) is an easy follow-up.
 
 > **Heads-up on versioning:** Mojang dropped the `1.` prefix for its newest major —
-> Minecraft is now versioned `26.x` (newest betas: `26.2`). NeoForge mirrors this with a `26.x` line.
-> The newest **stable** NeoForge is still `21.11.x` (MC 1.21.11).
+> Minecraft is now versioned `26.x` (MC 26.1 and 26.2 are both stable releases). NeoForge mirrors this
+> with a `26.x` line: NeoForge **26.1.x is stable**, but NeoForge **26.2.x is beta-only** at present
+> (`26.2.0.23-beta` latest). The newest fully-stable NeoForge is still `21.11.x` (MC 1.21.11).
 
 ## Scope
 
@@ -22,12 +23,15 @@ NeoForge version `21.minor` == MC `1.21.minor`.
 | 1.21.10   | 21.10.x         | ✅ tripwire | source-compiled in CI; covered by legacy jar |
 | 1.21.11   | 21.11.x         | ✅ jar   | modern era compile target               |
 | 1.21.2 / 1.21.6 / 1.21.7 / 1.21.9 | — | ❌ | no **stable** NeoForge (beta-only); skipped |
-| 26.1 / 26.2 | 26.x beta        | ⏸ later | MC's new major; **beta only**. Needs Java 25. APIs match 1.21.11 (verified). Add when stable. |
+| 26.1      | 26.1.x (stable)  | ⏳ easy add | stable MC + stable NeoForge. Same API as 26.2; add a `next`-era compile target when wanted. |
+| 26.2      | 26.2.x-beta      | ✅ jar (beta) | next era compile target; NeoForge 26.2.x is beta-only, so the mod version ships as **beta**. |
 
 The **legacy jar** (`*-mc1.21.1.jar`, compiled against NeoForge 21.1.235) declares
 `minecraft_version_range=[1.21.1,1.21.11)` and `neo_version_range=[21.1,21.11)` and is published for
 MC 1.21.1, 1.21.3, 1.21.4, 1.21.5, 1.21.8, 1.21.10. The **modern jar** (`*-mc1.21.11.jar`, compiled
 against NeoForge 21.11.44) declares `[1.21.11,1.22)` / `[21.11,)` and is published for MC 1.21.11.
+The **next jar** (`*-mc26.2.jar`, compiled against NeoForge `26.2.0.23-beta`, Java 25 toolchain) declares
+`[26.2,27)` / `[26.2,)` and is published as a **beta** Modrinth version for MC 26.2.
 
 ## API audit — verified against decompiled sources
 
@@ -135,25 +139,33 @@ against 1.21.11 and 26.2 changed the recommendation:
    loaded, config generated, no errors. ✅
 7. **Docs** — README + this file updated. ✅
 
-## MC 26.x — beta now, ready when stable
+## MC 26.x — implemented (next era, beta)
 
-NeoForge 26.x targets MC 26.1/26.2 and is **beta only** (`26.2.0.19-beta` latest). It requires
-**Java 25** (FancyModLoader 11 needs JVM 25+), unlike the 1.21.x line (Java 21). Verified against the
-26.2 decompiled source: every seam above is **identical to 1.21.11** — the new major adds *no* breakage
-beyond the 1.21.11 refactor. So when 26.x goes stable:
+NeoForge 26.x targets MC 26.1/26.2. MC 26.1 has a **stable** NeoForge (26.1.2.82); MC 26.2's NeoForge is
+**beta-only** (`26.2.0.23-beta` latest). It requires **Java 25** (FancyModLoader 11 needs JVM 25+), unlike
+the 1.21.x line (Java 21). Verified against the 26.2 decompiled source: every seam above is **identical to
+1.21.11** — the new major adds *no* breakage beyond the 1.21.11 refactor. So the `next` era reuses
+`src/modern/java`'s `KeepInventoryCompat` unchanged and only swaps the compile target + Java toolchain.
 
-- Add a third era to `eraConfig` (e.g. `next`) targeting `26.x` with Java 25 toolchain, or widen the
-  modern jar's range if cross-major binary compat holds (needs a smoke-test — *not* assumed).
-- Add a CI row and a `modrinth` publish for the new era.
-- No `DeathHandler` or `KeepInventoryCompat` logic change expected (the modern `KeepInventoryCompat`
-  already uses the 1.21.11-shaped API that 26.x shares).
+Implemented as a third `eraConfig` entry (`next`, NeoForge `26.2.0.23-beta`, Java 25 toolchain,
+`versionType = 'beta'`, classifier `mc26.2`, game version `26.2`, mc range `[26.2,27)`). The build's
+`java.toolchain.languageVersion` is now era-driven (25 for `next`, 21 otherwise); Gradle auto-provisions
+the JDK via the Foojay resolver applied by the moddev plugin. CI has a `next 26.2` row (Java 25); the
+release workflow runs a third `./gradlew modrinth -Pera=next` step. Verified: compiles against
+26.2.0.23-beta, bytecode references the modern `GameRules` API, and a dedicated server boots with the mod
+loaded + config generated + no errors.
+
+**MC 26.1 (stable NeoForge) is an easy follow-up**: add a `next261` era (or widen `next`'s `gameVersions`
+to include `26.1`/`26.1.1`/`26.1.2` after a cross-minor smoke-test). The source is identical; only the
+NeoForge compile version and game-version list change. Deferred for now to keep the first 26.x release
+focused on the newest stable MC (26.2).
 
 ## Build-side facts
 
 - `net.neoforged.moddev` plugin: **2.0.141** (works for all 1.21.x targets; 26.x also resolves with it
   given a Java 25 toolchain).
 - Minotaur (Modrinth publish): **2.9.0**, plugin id `com.modrinth.minotaur`.
-- NeoForge versions: 21.1.235 / 21.3.97 / 21.4.157 / 21.5.98 / 21.8.54 / 21.10.64 / 21.11.44 / 26.2.0.19-beta.
+- NeoForge versions: 21.1.235 / 21.3.97 / 21.4.157 / 21.5.98 / 21.8.54 / 21.10.64 / 21.11.44 / 26.2.0.23-beta.
 
 ## Risks / watch-items
 
