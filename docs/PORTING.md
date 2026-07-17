@@ -37,31 +37,45 @@ everything else is stable across the whole range.
 
 ### Seam 1 — `keepInventory` gamerule
 
-| | 1.21.1 (legacy) | 1.21.11 / 26.2 (modern) |
-|---|---|---|
-| holder class | `net.minecraft.world.level.GameRules` | `net.minecraft.world.level.gamerules.GameRules` |
-| `getGameRules()` declared on | `Level` | **`ServerLevel` only** (not `Level`) |
-| `player.level()` static return | `Level` (from `Entity`) | `ServerLevel` (covariant override on `ServerPlayer`) |
-| constant | `GameRules.RULE_KEEPINVENTORY` : `Key<BooleanValue>` | `GameRules.KEEP_INVENTORY` : `GameRule<Boolean>` |
-| registered id string | `"keepInventory"` | `"keep_inventory"` (snake_case) |
-| accessor | `getBoolean(Key)` → `boolean` | `get(GameRule)` → `Boolean` (raw value) |
-| `Key` / `Value` / `BooleanValue` / `getRule` | present | **removed** (rules are now registry-backed `GameRule<T>` in `BuiltInRegistries.GAME_RULE`) |
+| | 1.21.1 (legacy) | 1.21.3–1.21.10 (legacy) | 1.21.11 / 26.2 (modern) |
+|---|---|---|---|
+| holder class | `...world.level.GameRules` | `...world.level.GameRules` | `...world.level.gamerules.GameRules` |
+| `getGameRules()` declared on | `Level` (inherited by `ServerLevel`) | **`ServerLevel` only** (gone from `Level`) | **`ServerLevel` only** (gone from `Level`) |
+| `player.level()` static return | `Level` | `Level` | `ServerLevel` (covariant override on `ServerPlayer`) |
+| constant | `GameRules.RULE_KEEPINVENTORY` : `Key<BooleanValue>` | same as 1.21.1 | `GameRules.KEEP_INVENTORY` : `GameRule<Boolean>` |
+| registered id string | `"keepInventory"` | `"keepInventory"` | `"keep_inventory"` (snake_case) |
+| accessor | `getBoolean(Key)` → `boolean` | `getBoolean(Key)` → `boolean` | `get(GameRule)` → `Boolean` (raw value) |
+| `Key` / `Value` / `BooleanValue` / `getRule` | present | present | **removed** (registry-backed `GameRule<T>` in `BuiltInRegistries.GAME_RULE`) |
 
-> **Correction of the earlier audit:** this is *not* a "3-line rename." 1.21.11 replaced the entire
-> `Key`/`Value` wrapper structure with a registry-backed `GameRule<T>` whose `get()` returns the value
-> directly, moved the class to a new package, moved `getGameRules()` off `Level` onto `ServerLevel`
-> (compensated by `ServerPlayer.level()` becoming covariant), and snake_cased the id. A single
-> reflection chain targeting `getRule(Key)`→`Value#get()` (the old Path B design) does **not** work on
-> 1.21.11 — those methods no longer exist. Verified directly from source.
+> **Two corrections of the earlier audit, both caught by the CI tripwires:**
+>
+> 1. `getGameRules()` did **not** move from `Level` to `ServerLevel` at 1.21.11 — it moved at the
+>    **1.21.2/1.21.3** boundary. The first tripwire build (1.21.3) failed with `cannot find symbol /
+>    method getGameRules() / location: class Level`, and all five cross-minor tripwires failed
+>    identically. A legacy jar compiled against 1.21.1 that calls `player.level().getGameRules()`
+>    encodes `Level.getGameRules()` in its bytecode and would throw `NoSuchMethodError` at runtime on
+>    1.21.3–1.21.10. **The legacy `KeepInventoryCompat` therefore calls `getGameRules()` on
+>    `ServerLevel` via a downcast** `((ServerLevel) player.level()).getGameRules()` — legal across the
+>    whole legacy era (`player.level()` is statically `Level` through 1.21.10; `ServerLevel.getGameRules()`
+>    exists throughout, inherited on 1.21.1 and declared on 1.21.3+) and runtime-safe on every targeted
+>    version. Bytecode-verified: the shipped legacy jar references `ServerLevel.getGameRules()`.
+>
+> 2. The GameRules *type* restructure (`Key`/`Value` removed, registry-backed `GameRule<T>`,
+>    `get()` returns the value directly, package move, snake_case id) **is** confined to 1.21.11+.
+>    A single reflection chain targeting `getRule(Key)`→`Value#get()` (the old Path B design) does
+>    **not** work on 1.21.11/26.2 — those methods no longer exist there. Verified directly from source.
 
 ### Seam 2 — `ServerLevel` accessor
 
-| | 1.21.1 (legacy) | 1.21.11 / 26.2 (modern) |
-|---|---|---|
-| `ServerPlayer.serverLevel()` | `ServerLevel` ✓ | **removed** |
-| `ServerPlayer.level()` | `Level` (inherited) | `ServerLevel` (covariant override) |
+| | 1.21.1 (legacy) | 1.21.3–1.21.10 (legacy) | 1.21.11 / 26.2 (modern) |
+|---|---|---|---|
+| `ServerPlayer.serverLevel()` | `ServerLevel` ✓ | present (verified on 1.21.3) | **removed** |
+| `ServerPlayer.level()` static return | `Level` (inherited) | `Level` | `ServerLevel` (covariant override) |
 
-Used by the ORBS spawn (`ExperienceOrb.award(ServerLevel, Vec3, int)`).
+Used by the ORBS spawn (`ExperienceOrb.award(ServerLevel, Vec3, int)`). The legacy `KeepInventoryCompat`
+uses the downcast `(ServerLevel) player.level()` for this too (rather than `serverLevel()`), because
+`serverLevel()`'s removal point within the legacy era is not pinned down and the cast is unconditionally
+valid across 1.21.1–1.21.10. The modern twin uses the covariant `player.level()` directly.
 
 ### Stable across the whole range
 
@@ -145,9 +159,12 @@ beyond the 1.21.11 refactor. So when 26.x goes stable:
 
 - **Cross-minor binary compat (legacy jar):** the legacy jar is compiled against 21.1.235 but claims
   1.21.1–1.21.10. This rests on the non-GameRules APIs keeping identical descriptors across those
-  minors (audited stable) and the legacy GameRules API being present through 1.21.10 (it is — the break
-  is 1.21.11-only). The CI tripwires recompile the source against each minor as a regression guard;
-  if a future point release shifts a descriptor, the tripwire fails loudly.
+  minors (audited stable) and the legacy GameRules surface (`RULE_KEEPINVENTORY` + `getBoolean` +
+  `ServerLevel.getGameRules()`) being present through 1.21.10. The legacy source is written to call
+  `getGameRules()` on `ServerLevel` (via downcast), not `Level`, precisely so one jar's bytecode is
+  valid across the whole era — a point the CI tripwires enforce by recompiling against 1.21.3, 1.21.4,
+  1.21.5, 1.21.8, and 1.21.10 on every push. (The tripwires already caught one bad assumption here —
+  see Seam 1 — before any release shipped.)
 - **1.21.11 is very new.** Pin the modern era to 21.11.44 and re-audit if point releases shift the
   GameRules API again.
 - **Grave-mod interaction is unchanged** from 1.0.0: set `keepPercentage = 0` if an XP-managing grave

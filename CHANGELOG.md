@@ -21,6 +21,11 @@ classifier suffix on each release artifact).
 - The keep-inventory gamerule read and the `ServerLevel` accessor were extracted into an
   era-specific `KeepInventoryCompat` seam, so the shared death/respawn logic is identical
   across both jars. This is "Path C" of the multi-version plan (see `docs/PORTING.md`).
+- The legacy seam reads the gamerule via `((ServerLevel) player.level()).getGameRules()` rather
+  than `player.level().getGameRules()`: `getGameRules()` moved from `Level` to `ServerLevel` at
+  the 1.21.2/1.21.3 boundary, so calling it on `ServerLevel` is what makes one legacy jar
+  binary-compatible across 1.21.1–1.21.10. The CI tripwire matrix recompiles the legacy source
+  against 1.21.3/1.21.4/1.21.5/1.21.8/1.21.10 on every push to guard this.
 
 ### Notes
 - Minecraft 26.x (NeoForge 26.x) is **not yet targeted** — it is still in beta and requires
