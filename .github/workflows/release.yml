@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+# Builds both era jars and publishes each as a separate Modrinth version, then attaches both
+# jars to a GitHub Release. Triggered by pushing a tag like `v1.1.0`.
+#
+# Prerequisites (one-time setup — see the repo README / docs/PORTING.md):
+#   1. The Modrinth project with slug "tweakable-xp-loss" must already exist (create it as a
+#      draft via the Modrinth dashboard first; Minotaur cannot create the project).
+#   2. A GitHub Actions secret named MODRINTH_TOKEN containing a Modrinth API token with the
+#      CREATE_VERSION scope (https://modrinth.com/settings/account).
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle + neoformruntime
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: release-gradle-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            release-gradle-
+
+      - name: Publish legacy jar to Modrinth (MC 1.21.1-1.21.10)
+        run: ./gradlew modrinth -Pera=legacy --no-daemon --stacktrace
+
+      - name: Publish modern jar to Modrinth (MC 1.21.11)
+        run: ./gradlew modrinth -Pera=modern --no-daemon --stacktrace
+
+      - name: Collect jars
+        run: |
+          mkdir -p artifacts
+          cp build/libs/tweakable_xp_loss-*.jar artifacts/
+          ls -la artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*.jar

@@ -2,39 +2,76 @@ plugins {
     id 'java-library'
     id 'maven-publish'
     id 'net.neoforged.moddev' version '2.0.141'
+    id 'com.modrinth.minotaur' version '2.9.0'
     id 'idea'
-}
-
-tasks.named('wrapper', Wrapper).configure {
-    distributionType = Wrapper.DistributionType.BIN
 }
 
 version = mod_version
 group = mod_group_id
 
-sourceSets.main.resources {
-    srcDir('src/generated/resources')
-    exclude('src/generated/**/.cache')
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-version build — "Path C": two jars, each compiled against its era's
+// direct GameRules API (see docs/PORTING.md).
+//
+//   ./gradlew build                  -> legacy jar (default; MC 1.21.1-1.21.10)
+//   ./gradlew build -Pera=modern     -> modern jar (MC 1.21.11+)
+//
+// CI tripwire: override the compile NeoForge version within an era to confirm the
+// shared source still compiles against every target, e.g.
+//   ./gradlew build -Pera=legacy -PneoVersion=21.4.157
+// ─────────────────────────────────────────────────────────────────────────────
+String era = project.findProperty('era') ?: 'legacy'
+String neoVersionOverride = project.findProperty('neoVersion')
 
-repositories {
-    // Add additional repositories here if required by dependencies.
+Map<String, Map<String, Object>> eraConfig = [
+    legacy: [
+        neoVersion      : '21.1.235',
+        minecraftVersion: '1.21.1',
+        mcRange         : '[1.21.1,1.21.11)',
+        neoRange        : '[21.1,21.11)',
+        classifier      : 'mc1.21.1',
+        gameVersions    : ['1.21.1', '1.21.3', '1.21.4', '1.21.5', '1.21.8', '1.21.10'],
+        parchmentMc     : '1.21.1',
+        parchmentVer    : '2024.11.17',
+    ],
+    modern: [
+        neoVersion      : '21.11.44',
+        minecraftVersion: '1.21.11',
+        mcRange         : '[1.21.11,1.22)',
+        neoRange        : '[21.11,)',
+        classifier      : 'mc1.21.11',
+        gameVersions    : ['1.21.11'],
+        // Parchment has no 1.21.11 build yet; compile without it (param names only).
+        parchmentMc     : '',
+        parchmentVer    : '',
+    ],
+]
+Map<String, Object> cfg = eraConfig[era]
+String neoVersion = neoVersionOverride ?: cfg.neoVersion as String
+
+// Sanity: fail fast on a typo'd -Pera.
+if (cfg == null) {
+    throw new GradleException("Unknown era '-Pera=${era}'. Use 'legacy' or 'modern'.")
 }
 
 base {
     archivesName = mod_id
 }
 
-// Mojang ships Java 21 to end users in 1.21.1, so mods should target Java 21.
+// Mojang ships Java 21 to end users through MC 1.21.x; the modern era still targets 21.
+// (MC 26.x / NeoForge 26.x will require Java 25 — handle when that line goes stable.)
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 neoForge {
-    // Specify the version of NeoForge to use.
-    version = project.neo_version
+    version = neoVersion
 
-    parchment {
-        mappingsVersion = project.parchment_mappings_version
-        minecraftVersion = project.parchment_minecraft_version
+    // Parchment is only applied for the default legacy compile (and not when a CI
+    // tripwire overrides -PneoVersion, to avoid MC/parchment version mismatch).
+    if (!neoVersionOverride && cfg.parchmentVer) {
+        parchment {
+            mappingsVersion = cfg.parchmentVer
+            minecraftVersion = cfg.parchmentMc
+        }
     }
 
     // This is a server-side mod, so only a server run is configured.
@@ -53,7 +90,22 @@ neoForge {
 
     mods {
         "${mod_id}" {
-            sourceSet(sourceSets.main)
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+// Fold the single era-specific source dir into `main`. src/main/java holds the shared
+// code; src/legacy/java or src/modern/java holds KeepInventoryCompat for that era.
+// Only one era dir is compiled per build (same FQN in both, so never both at once).
+sourceSets {
+    main {
+        java {
+            if (era == 'legacy') {
+                srcDir 'src/legacy/java'
+            } else {
+                srcDir 'src/modern/java'
+            }
         }
     }
 }
@@ -70,10 +122,10 @@ dependencies {
 // Expand declared replace properties in the mods.toml template.
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
     var replaceProperties = [
-            minecraft_version      : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
-            neo_version_range       : neo_version_range,
+            minecraft_version      : cfg.minecraftVersion,
+            minecraft_version_range: cfg.mcRange,
+            neo_version            : neoVersion,
+            neo_version_range      : cfg.neoRange,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,
@@ -92,9 +144,36 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+// Distinguish the two era jars by classifier: tweakable_xp_loss-1.1.0-mc1.21.1.jar, etc.
+jar {
+    archiveClassifier = cfg.classifier
+}
+
 idea {
     module {
         downloadSources = true
         downloadJavadoc = true
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modrinth publishing. One Modrinth *version* per era (each has its own jar +
+// game-version list). Publish a release by running, per era:
+//   ./gradlew modrinth -Pera=legacy
+//   ./gradlew modrinth -Pera=modern
+// Requires the MODRINTH_TOKEN env var. The project (slug "tweakable-xp-loss") must
+// already exist on Modrinth — create it as a draft via the web dashboard first.
+// ─────────────────────────────────────────────────────────────────────────────
+modrinth {
+    token = System.getenv('MODRINTH_TOKEN') ?: 'UNSET'
+    projectId = 'tweakable-xp-loss'
+    versionNumber = "${mod_version}-${cfg.classifier}"
+    versionName = "${mod_name} ${mod_version} (${cfg.classifier})"
+    versionType = 'release'
+    changelog = file('CHANGELOG.md').exists() ? file('CHANGELOG.md').text : ''
+    uploadFile = tasks.jar
+    gameVersions = cfg.gameVersions
+    loaders = ['neoforge']
+    // Flip on to dry-run an upload without sending anything to Modrinth:
+    // debugMode = true
 }

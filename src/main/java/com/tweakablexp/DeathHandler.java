@@ -5,7 +5,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.GameRules;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingExperienceDropEvent;
@@ -39,7 +38,7 @@ public final class DeathHandler {
     }
 
     /** True when the mod should actively retain XP for the given player's death. */
-    private static boolean activeFor(Player player) {
+    private static boolean activeFor(ServerPlayer player) {
         if (!Config.ENABLED.get()) {
             return false;
         }
@@ -48,7 +47,9 @@ public final class DeathHandler {
             return false;
         }
         // keepInventory already preserves XP and suppresses the vanilla drop; nothing to do.
-        return !player.level().getGameRules().getBoolean(GameRules.RULE_KEEPINVENTORY);
+        // The keep-inventory read is delegated to an era-specific KeepInventoryCompat so the
+        // shared code never compiles against a particular GameRules API shape.
+        return !KeepInventoryCompat.keepInventory(player);
     }
 
     /** Retained XP points for a given total at the configured percentage. */
@@ -67,7 +68,7 @@ public final class DeathHandler {
     @SubscribeEvent
     public static void onExperienceDrop(LivingExperienceDropEvent event) {
         LivingEntity entity = event.getEntity();
-        if (!(entity instanceof Player player)) {
+        if (!(entity instanceof ServerPlayer player)) {
             return;
         }
         if (!activeFor(player)) {
@@ -91,7 +92,7 @@ public final class DeathHandler {
         if (retained <= 0) {
             return;
         }
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = KeepInventoryCompat.serverLevel(player);
         ExperienceOrb.award(level, player.position(), retained);
     }
 
@@ -109,10 +110,10 @@ public final class DeathHandler {
             return;
         }
         Player newPlayer = event.getEntity();
-        if (!(newPlayer instanceof ServerPlayer)) {
+        if (!(newPlayer instanceof ServerPlayer sp)) {
             return;
         }
-        if (!activeFor(newPlayer) || Config.AWARD_METHOD.get() != Config.AwardMethod.INSTANT) {
+        if (!activeFor(sp) || Config.AWARD_METHOD.get() != Config.AwardMethod.INSTANT) {
             return;
         }
         int retained = retainedAmount(event.getOriginal().totalExperience);

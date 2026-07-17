@@ -1,9 +1,26 @@
 # Tweakable XP Loss
 
-A small **server-side** [NeoForge](https://neoforged.net/) mod for **Minecraft 1.21.1** that lets you configure
-the percentage of experience points a player keeps after death, overriding the default vanilla XP loss.
+A small **server-side** [NeoForge](https://neoforged.net/) mod that lets you configure the percentage of
+experience points a player keeps after death, overriding the default vanilla XP loss.
 
 Players do **not** need this mod installed on their client — it runs entirely on the server.
+
+## Supported versions
+
+The mod ships as **two jars**, each compiled against its era's Minecraft/NeoForge APIs. Pick the one that
+covers your Minecraft version:
+
+| Jar | Minecraft | NeoForge |
+|-----|-----------|----------|
+| `tweakable_xp_loss-<version>-mc1.21.1.jar` | 1.21.1 – 1.21.10 | 21.1.x – 21.10.x |
+| `tweakable_xp_loss-<version>-mc1.21.11.jar` | 1.21.11 | 21.11.x |
+
+Minecraft **26.x** (NeoForge 26.x) is not yet supported — it is still in beta. Its relevant APIs are
+identical to 1.21.11, so support will be added when 26.x goes stable.
+
+> **Why two jars?** Minecraft 1.21.11 restructured the `GameRules` API (the `keepInventory` gamerule moved
+> package, changed type, and changed its accessor). Rather than rely on runtime reflection, each jar calls
+> its era's API directly — compile-checked and obviously correct. See [`docs/PORTING.md`](docs/PORTING.md).
 
 ## Config
 
@@ -60,8 +77,20 @@ points they had before dying.
 
 ## Building
 
+Build the jar for a specific era (defaults to `legacy`):
+
 ```bash
-./gradlew build
+./gradlew build                # legacy jar  -> build/libs/tweakable_xp_loss-<ver>-mc1.21.1.jar
+./gradlew build -Pera=modern   # modern jar  -> build/libs/tweakable_xp_loss-<ver>-mc1.21.11.jar
 ```
 
-The mod jar is written to `build/libs/tweakable_xp_loss-1.0.0.jar`.
+Java 21 is required (the Gradle toolchain downloads it automatically if missing).
+
+### Continuous integration & publishing
+
+- **`build` workflow** (`.github/workflows/ci.yml`) compiles the mod against every targeted
+  Minecraft/NeoForge version on each push/PR — the cross-minor jobs act as a tripwire for API drift.
+- **`release` workflow** (`.github/workflows/release.yml`) triggers on a `v*` git tag: it builds both
+  jars, publishes each as a separate [Modrinth](https://modrinth.com/) version (via
+  [Minotaur](https://github.com/modrinth/minotaur)), and attaches both jars to a GitHub Release.
+  Requires a `MODRINTH_TOKEN` repository secret and an existing Modrinth project (slug `tweakable-xp-loss`).
