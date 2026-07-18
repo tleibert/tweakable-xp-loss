@@ -15,7 +15,9 @@ permissions:
 #   1. The Modrinth project with slug "tweakable-xp-loss" must already exist (create it as a
 #      draft via the Modrinth dashboard first; Minotaur cannot create the project).
 #   2. A GitHub Actions secret named MODRINTH_TOKEN containing a Modrinth API token with the
-#      VERSION_CREATE scope (https://modrinth.com/settings/account).
+#      VERSION_CREATE and PROJECT_WRITE scopes (https://modrinth.com/settings/account).
+#      VERSION_CREATE publishes each version; PROJECT_WRITE sets the project's environment
+#      metadata (client_side/server_side) below.
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -67,3 +69,23 @@ jobs:
         with:
           generate_release_notes: true
           files: artifacts/*.jar
+
+      # Environment (client_side/server_side) is project-level metadata, not per-version, so
+      # Minotaur can't set it. PATCH the project once per release to keep it correct (idempotent).
+      # Best-effort: if MODRINTH_TOKEN lacks PROJECT_WRITE scope this warns but cannot block the
+      # version uploads or GitHub Release above. Requires PROJECT_WRITE scope to actually apply.
+      - name: Set Modrinth environment metadata (server-side mod)
+        continue-on-error: true
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+            "https://api.modrinth.com/v2/project/tweakable-xp-loss" \
+            -H "Authorization: ${MODRINTH_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"client_side":"optional","server_side":"required"}')
+          echo "Modrinth project PATCH -> HTTP $code"
+          if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+            echo "Environment metadata set: server_side=required, client_side=optional"
+          else
+            echo "::error::Modrinth project PATCH failed (HTTP $code). Ensure MODRINTH_TOKEN has PROJECT_WRITE scope (currently the env metadata was not updated)."
+            exit 1
+          fi
